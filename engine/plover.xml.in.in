@@ -1,0 +1,27 @@
+<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<!-- filename: enchant.xml -->
+<component>
+<name>org.freedesktop.IBus.Plover</name>
+<description>Plover</description>
+<exec>${libexecdir}/ibus-engine-plover --ibus</exec>
+<version>@VERSION@</version>
+<author>Rick Lupton</author>
+<license>GPL</license>
+<homepage>http://code.google.com/p/ibus</homepage>
+<textdomain>ibus-plover</textdomain>
+
+<engines>
+<engine>
+<name>plover</name>
+<language>en</language>
+<license>GPL</license>
+<author>Rick Lupton</author>
+<icon>${pkgdatadir}/icons/ibus-plover.png</icon>
+<layout>us</layout>
+<longname>Plover</longname>
+<description>Plover Input Method</description>
+<rank>0</rank>
+</engine>
+</engines>
+
+</component>

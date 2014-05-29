@@ -1,0 +1,232 @@
+# vim:set et sts=4 sw=4:
+#
+# ibus-tmpl - The Input Bus template project
+#
+# Copyright (c) 2007-2011 Peng Huang <shawn.p.huang@gmail.com>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2, or (at your option)
+# any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+import gobject
+import pango
+import ibus
+from ibus import keysyms
+from ibus import modifier
+from os.path import commonprefix
+
+from plover.oslayer.keyboardcontrol import KeyboardEmulation
+from ploverlink import Steno
+from key_combinations import parse_key_combinations
+
+class Engine(ibus.EngineBase):
+    def __init__(self, bus, object_path):
+        super(Engine, self).__init__(bus, object_path)
+        self.__is_invalidate = False
+        self.__preedit_string = u""
+        self.__aux_string = u""
+        #self.__lookup_table = ibus.LookupTable()
+        self.__prop_list = ibus.PropList()
+        self.__prop_list.append(ibus.Property(u"test", icon = u"ibus-locale"))
+        self.__init_plover()
+
+    def __init_plover(self):
+        print "Init plover"
+        self.steno = Steno(self)
+        self.keyboard_control = KeyboardEmulation()
+        # self.steno_engine = plover.app.StenoEngine()
+        # self.steno_engine.add_callback(self.__plover_update_status)
+        # self.steno_engine.set_output(
+        #     Output(self.__plover_consume_command, self.steno_engine))
+
+        # plover.app.init_engine(self.steno_engine, self.plover_config)
+        #self.steno_engine.set_is_running(True)
+
+    def process_key_event(self, keyval, keycode, state):
+        # ignore key presses with modifiers (e.g. Control-C)
+        if (state & ~modifier.RELEASE_MASK):
+            return False
+
+        # ignore key release events
+        is_press = ((state & modifier.RELEASE_MASK) == 0)
+        #print keysyms.keycode_to_name(keyval), keyval, keycode, state
+        try:
+            if is_press:
+                handled = self.steno.key_down(keycode)
+            else:
+                handled = self.steno.key_up(keycode)
+
+            # Show steno keys
+            self.__aux_string = self.steno.get_steno_string()
+            self.__invalidate()
+        except:
+            import traceback
+            traceback.print_exc()
+        
+        # Don't pass through key presses corresponding to steno keys
+        if not handled:
+            print "...", keyval, keycode, state
+        return handled
+
+        if self.__preedit_string:
+            if keyval == keysyms.Return:
+                self.__commit_string(self.__preedit_string)
+                return True
+            elif keyval == keysyms.Escape:
+                self.__preedit_string = u""
+                self.__update()
+                return True
+            elif keyval == keysyms.BackSpace:
+                self.__preedit_string = self.__preedit_string[:-1]
+                self.__invalidate()
+                return True
+            elif keyval == keysyms.space:
+                # if self.__lookup_table.get_number_of_candidates() > 0:
+                #     self.__commit_string(self.__lookup_table.get_current_candidate().text)
+                # else:
+                #     self.__commit_string(self.__preedit_string)
+                self.__commit_string(self.__preedit_string)
+                return False
+            elif keyval == keysyms.Left or keyval == keysyms.Right:
+                return True
+        if keyval in xrange(keysyms.a, keysyms.z + 1) or \
+            keyval in xrange(keysyms.A, keysyms.Z + 1):
+            if state & (modifier.CONTROL_MASK | modifier.ALT_MASK) == 0:
+                self.__preedit_string += unichr(keyval)
+                self.__invalidate()
+                return True
+        else:
+            if keyval < 128 and self.__preedit_string:
+                self.__commit_string(self.__preedit_string)
+
+        return False
+
+    def __invalidate(self):
+        if self.__is_invalidate:
+            return
+        self.__is_invalidate = True
+        gobject.idle_add(self.__update, priority = gobject.PRIORITY_LOW)
+
+    def __commit_string(self, text):
+        self.commit_text(ibus.Text(text))
+        self.__preedit_string = u""
+        self.__update()
+
+    def __update(self):
+        preedit_len = len(self.__preedit_string)
+        attrs = ibus.AttrList()
+        #self.__lookup_table.clean()
+        if preedit_len > 0:
+            attrs.append(ibus.AttributeForeground(0xff0000, 0, preedit_len))
+            # for text in [self.__preedit_string, self.__preedit_string + "baz"]:
+            #     self.__lookup_table.append_candidate(ibus.Text(text))
+        self.update_auxiliary_text(
+            ibus.Text(self.__aux_string, ibus.AttrList()),
+            len(self.__aux_string) > 0)
+        attrs.append(
+            ibus.AttributeUnderline(pango.UNDERLINE_SINGLE, 0, preedit_len))
+        self.update_preedit_text(ibus.Text(self.__preedit_string, attrs),
+                                 preedit_len, preedit_len > 0)
+        self.__update_lookup_table()
+        self.__is_invalidate = False
+
+    def __update_lookup_table(self):
+        # visible = self.__lookup_table.get_number_of_candidates() > 0
+        visible = False
+        #self.update_lookup_table(self.__lookup_table, visible)
+
+    def focus_in(self):
+        self.register_properties(self.__prop_list)
+
+    def focus_out(self):
+        pass
+
+    def reset(self):
+        pass
+
+    def enable(self):
+        # Tell IBus we want to use surrounding text later
+        self.get_surrounding_text()
+
+    def property_activate(self, prop_name):
+        print "PropertyActivate(%s)" % prop_name
+
+    def __plover_update_status(self, state):
+        print "Plover update status:", state
+
+    def __plover_consume_command(self, command):
+        print "Plover consume command:", command
+
+    # Plover callbacks
+    def send_backspaces(self, b):
+        #self.__preedit_string = self.__preedit_string[:-b]
+        s, p = self.get_surrounding_text()
+        print("Surrounding:", s.get_text(), p)
+        self.delete_surrounding_text(-b, b)
+
+    def delete_backwards(self, t):
+        # Check if surrounding text matches text to delete
+        s, p = self.get_surrounding_text()
+        current_text = s.get_text()[p - len(t):p]
+        if current_text == t:
+            print "Deleting ok: '%s'" % t
+            self.delete_surrounding_text(-len(t), len(t))
+            return True
+        else:
+            print "DELETE MISMATCH: '%s' != '%s'" % (t, current_text)
+            return False
+
+    def send_string(self, t):
+        self.__preedit_string += t
+        self.__commit_string(self.__preedit_string)
+
+    def change_string(self, before, after):
+        # Check if surrounding text matches text to delete
+        s, p = self.get_surrounding_text()
+        current_text = s.get_text()[p - len(before):p]
+        if current_text != before:
+            print "MISMATCH: '%s' != '%s'" % (before, current_text)
+            return False
+        offset = len(commonprefix([before, after]))
+        print "____", offset, "___", before, '->', after
+        #print "Changing ok: '%s'" % t
+        delete_length = len(before[offset:])
+        self.delete_surrounding_text(-delete_length, delete_length)
+        self.__preedit_string += after[offset:]
+        self.__commit_string(self.__preedit_string)
+        return True
+
+    def send_key_combination(self, c):
+        print "**** Send key comb:", c, events
+        # Does it need to be delayed?
+        # wx.CallAfter(self.keyboard_control.send_key_combination, c)
+
+        # Does it need to be protected so it's not picked up again? In
+        # theory yes; but as long as key combos aren't sending steno
+        # key codes it'll be ok.
+        #self.keyboard_control.send_key_combination(c)
+
+
+    # TODO: test all the commands now
+    def send_engine_command(self, c):
+        print "**** Send engine command:", c
+        result = self.engine_command_callback(c)
+        # if result and not self.engine.is_running:
+        #     self.engine.machine.suppress = self.send_backspaces
+
+    def show_message(self, message):
+        def set_message():
+            self.__aux_string = message
+            self.__invalidate()
+        gobject.idle_add(set_message, priority = gobject.PRIORITY_LOW)
+
