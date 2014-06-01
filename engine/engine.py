@@ -18,6 +18,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
+import sys
 import gobject
 import pango
 import ibus
@@ -27,7 +28,12 @@ from os.path import commonprefix
 
 from plover.oslayer.keyboardcontrol import KeyboardEmulation
 from ploverlink import Steno
+# from plover import StenoEngine
+import plover_machine
 from key_combinations import parse_key_combinations
+
+import aware_formatter
+import plover.formatting as formatting
 
 class Engine(ibus.EngineBase):
     def __init__(self, bus, object_path):
@@ -42,10 +48,18 @@ class Engine(ibus.EngineBase):
 
     def __init_plover(self):
         print "Init plover"
-        self.steno = Steno(self)
+        self.machine = plover_machine.Stenotype({'arpeggiate': False})
+        self.steno = Steno(self.machine, self)
         self.keyboard_control = KeyboardEmulation()
+
+        # # Patch formatter
+        # formatting.Formatter = aware_formatter.AwareFormatter
         # self.steno_engine = plover.app.StenoEngine()
-        # self.steno_engine.add_callback(self.__plover_update_status)
+        # # self.steno_engine.add_callback(self.__plover_update_status)
+        # self.steno_engine.full_output.change_string = self.change_string
+        # self.steno_engine.full_output.send_key_combination = self.send_key_combination
+        # self.steno_engine.full_output.send_engine_command = self.send_engine_command
+        # self.steno_engine.set_machine(self.machine)
         # self.steno_engine.set_output(
         #     Output(self.__plover_consume_command, self.steno_engine))
 
@@ -57,18 +71,19 @@ class Engine(ibus.EngineBase):
         if (state & ~modifier.RELEASE_MASK):
             return False
 
-        # ignore key release events
         is_press = ((state & modifier.RELEASE_MASK) == 0)
-        #print keysyms.keycode_to_name(keyval), keyval, keycode, state
         try:
             if is_press:
-                handled = self.steno.key_down(keycode)
+                handled = self.machine.key_down(keycode)
             else:
-                handled = self.steno.key_up(keycode)
+                handled = self.machine.key_up(keycode)
 
-            # Show steno keys
-            self.__aux_string = self.steno.get_steno_string()
-            self.__invalidate()
+            # # Show steno keys
+            if self.__aux_string:
+                self.__aux_string = ""
+                self.__invalidate()
+            # self.__aux_string = self.steno.get_steno_string()
+            # self.__invalidate()
         except:
             import traceback
             traceback.print_exc()
@@ -125,11 +140,8 @@ class Engine(ibus.EngineBase):
     def __update(self):
         preedit_len = len(self.__preedit_string)
         attrs = ibus.AttrList()
-        #self.__lookup_table.clean()
         if preedit_len > 0:
             attrs.append(ibus.AttributeForeground(0xff0000, 0, preedit_len))
-            # for text in [self.__preedit_string, self.__preedit_string + "baz"]:
-            #     self.__lookup_table.append_candidate(ibus.Text(text))
         self.update_auxiliary_text(
             ibus.Text(self.__aux_string, ibus.AttrList()),
             len(self.__aux_string) > 0)
@@ -137,16 +149,12 @@ class Engine(ibus.EngineBase):
             ibus.AttributeUnderline(pango.UNDERLINE_SINGLE, 0, preedit_len))
         self.update_preedit_text(ibus.Text(self.__preedit_string, attrs),
                                  preedit_len, preedit_len > 0)
-        self.__update_lookup_table()
         self.__is_invalidate = False
 
-    def __update_lookup_table(self):
-        # visible = self.__lookup_table.get_number_of_candidates() > 0
-        visible = False
-        #self.update_lookup_table(self.__lookup_table, visible)
-
     def focus_in(self):
-        self.register_properties(self.__prop_list)
+        print "focus in %s" % self.__proxy._object_path
+        sys.stdout.flush()
+        #self.register_properties(self.__prop_list)
 
     def focus_out(self):
         pass
@@ -156,6 +164,8 @@ class Engine(ibus.EngineBase):
 
     def enable(self):
         # Tell IBus we want to use surrounding text later
+        print "enable %s" % self.__proxy._object_path
+        sys.stdout.flush()
         self.get_surrounding_text()
 
     def property_activate(self, prop_name):
@@ -168,28 +178,6 @@ class Engine(ibus.EngineBase):
         print "Plover consume command:", command
 
     # Plover callbacks
-    def send_backspaces(self, b):
-        #self.__preedit_string = self.__preedit_string[:-b]
-        s, p = self.get_surrounding_text()
-        print("Surrounding:", s.get_text(), p)
-        self.delete_surrounding_text(-b, b)
-
-    def delete_backwards(self, t):
-        # Check if surrounding text matches text to delete
-        s, p = self.get_surrounding_text()
-        current_text = s.get_text()[p - len(t):p]
-        if current_text == t:
-            print "Deleting ok: '%s'" % t
-            self.delete_surrounding_text(-len(t), len(t))
-            return True
-        else:
-            print "DELETE MISMATCH: '%s' != '%s'" % (t, current_text)
-            return False
-
-    def send_string(self, t):
-        self.__preedit_string += t
-        self.__commit_string(self.__preedit_string)
-
     def change_string(self, before, after):
         # Check if surrounding text matches text to delete
         s, p = self.get_surrounding_text()
@@ -207,14 +195,14 @@ class Engine(ibus.EngineBase):
         return True
 
     def send_key_combination(self, c):
-        print "**** Send key comb:", c, events
+        print "**** Send key comb:", c
         # Does it need to be delayed?
         # wx.CallAfter(self.keyboard_control.send_key_combination, c)
 
         # Does it need to be protected so it's not picked up again? In
         # theory yes; but as long as key combos aren't sending steno
         # key codes it'll be ok.
-        #self.keyboard_control.send_key_combination(c)
+        self.keyboard_control.send_key_combination(c)
 
 
     # TODO: test all the commands now
@@ -230,3 +218,22 @@ class Engine(ibus.EngineBase):
             self.__invalidate()
         gobject.idle_add(set_message, priority = gobject.PRIORITY_LOW)
 
+
+class EngineFactory(ibus.EngineFactoryBase):
+    def __init__(self, bus):
+        self.__bus = bus
+        super(EngineFactory, self).__init__(self.__bus)
+        self.__id = 0
+
+    def create_engine(self, engine_name):
+        if engine_name == "plover":
+            self.__id += 1
+            print engine_name, self.__id
+            bus_name = "%s/%d" % ("/org/freedesktop/IBus/Plover/Engine",
+                                  self.__id)
+            try:
+                e = engine.Engine(self.__bus, bus_name)
+            except:
+                traceback.print_exc()
+            return e
+        return super(EngineFactory, self).create_engine(engine_name)

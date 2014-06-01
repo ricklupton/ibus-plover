@@ -30,9 +30,9 @@ class EngineFactory(ibus.EngineFactoryBase):
         self.__id = 0
 
     def create_engine(self, engine_name):
-        print engine_name
         if engine_name == "plover":
             self.__id += 1
+            print engine_name, self.__id
             bus_name = "%s/%d" % ("/org/freedesktop/IBus/Plover/Engine",
                                   self.__id)
             try:
