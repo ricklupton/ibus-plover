@@ -27,9 +27,9 @@ class AwareFormatter(Formatter):
         for t in do:
             last_action = _get_last_action(prev.formatting if prev else None)
             if t.english:
-                t.formatting = _translation_to_actions(t.english, last_action)
+                t.formatting = _translation_to_actions(t.english, last_action, False)
             else:
-                t.formatting = _raw_to_actions(t.rtfcre[0], last_action)
+                t.formatting = _raw_to_actions(t.rtfcre[0], last_action, False)
             prev = t
 
         old = [a for t in undo for a in t.formatting]
