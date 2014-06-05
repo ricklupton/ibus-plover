@@ -21,33 +21,38 @@
 import os
 import sys
 import getopt
-import ibus
+from gi.repository import IBus
+from gi.repository import GLib
 import factory
-import gobject
 import locale
 
 class IMApp:
     def __init__(self, exec_by_ibus):
-        self.__component = ibus.Component("org.freedesktop.IBus.Plover",
-                                          "Plover IBus",
-                                          "0.1.0",
-                                          "GPL",
-                                          "Rick Lupton")
-        self.__component.add_engine("plover",
-                                    "plover",
-                                    "Plover",
-                                    "en",
-                                    "GPL",
-                                    "Rick Lupton",
-                                    "",
-                                    "en")
-        self.__mainloop = gobject.MainLoop()
-        self.__bus = ibus.Bus()
+        self.__mainloop = GLib.MainLoop()
+        self.__bus = IBus.Bus()
         self.__bus.connect("disconnected", self.__bus_disconnected_cb)
         self.__factory = factory.EngineFactory(self.__bus)
         if exec_by_ibus:
             self.__bus.request_name("org.freedesktop.IBus.Plover", 0)
         else:
+            self.__component = IBus.Component(
+                name="org.freedesktop.IBus.Plover",
+                description="Plover IBus",
+                version="0.1.0",
+                license="GPL",
+                author="Rick Lupton",
+                homepage="",
+                textdomain="")
+            engine = IBus.EngineDesc(
+                name="plover",
+                longname="plover longname",
+                description="plover description",
+                language="en",
+                license="GPL",
+                author="Rick Lupton",
+                icon="",
+                layout="en")
+            self.__component.add_engine(engine)
             self.__bus.register_component(self.__component)
 
     def run(self):

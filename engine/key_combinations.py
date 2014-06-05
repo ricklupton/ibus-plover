@@ -1,5 +1,7 @@
-from ibus import keysyms
-from ibus import modifier
+from gi.repository import IBus
+
+keysyms = IBus
+modifier = IBus.ModifierType
 
 def parse_key_combinations(combo_string):
     """Emulate a sequence of key combinations.

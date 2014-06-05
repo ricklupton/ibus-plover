@@ -1,8 +1,6 @@
-# vim:set et sts=4 sw=4:
+# ibus-plover - IBus engine for the Plover stenography system
 #
-# ibus-tmpl - The Input Bus template project
-#
-# Copyright (c) 2007-2011 Peng Huang <shawn.p.huang@gmail.com>
+# Copyright (c) 2014 Rick Lupton <r.lupton@gmail.com>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
