@@ -70,31 +70,17 @@ class Stenotype(StenotypeBase):
 
     def key_down(self, keycode):
         """Called when a key is pressed."""
-        if self.state != STATE_RUNNING:
-            return False  # not handled -- will type as normal
-        elif keycode in KEYCODE_TO_STENO_KEY:
+        if (self.state == STATE_RUNNING) and (keycode in KEYCODE_TO_STENO_KEY):
             self._down_keys.add(keycode)
             return True  # handled
         else:
             return False  # not handled
 
-    # def _post_suppress(self, suppress, steno_keys):
-    #     """Backspace the last stroke since it matched a command.
-    #     The suppress function is passed in to prevent threading issues with
-    #     the gui.
-    #     """
-    #     n = len(steno_keys)
-    #     if self.arpeggiate:
-    #         n += 1
-    #     suppress(n)
-
     def key_up(self, keycode):
         """Called when a key is released."""
-        if self.state != STATE_RUNNING:
-            return False  # not handled -- will type as normal
-        if keycode in KEYCODE_TO_STENO_KEY:
-            self._released_keys.add(keycode)
+        if (self.state == STATE_RUNNING) and (keycode in KEYCODE_TO_STENO_KEY):
             # Remove invalid released keys
+            self._released_keys.add(keycode)
             self._released_keys = \
                 self._released_keys.intersection(self._down_keys)
 

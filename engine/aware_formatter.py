@@ -18,6 +18,10 @@ class AwareFormatter(Formatter):
         'output', ['change_string', 'send_key_combination',
                    'send_engine_command'])
 
+    def __init__(self):
+        super(AwareFormatter, self).__init__()
+        self.default_action = None
+
     def format(self, undo, do, prev):
         """Format the given translations.
 
@@ -25,7 +29,10 @@ class AwareFormatter(Formatter):
         there was a render(old, new) method that could be overridden.
         """
         for t in do:
-            last_action = _get_last_action(prev.formatting if prev else None)
+            last_action = _get_last_action(
+                prev.formatting if prev
+                else [self.default_action] if self.default_action
+                else None)
             if t.english:
                 t.formatting = _translation_to_actions(t.english, last_action, False)
             else:
@@ -34,8 +41,6 @@ class AwareFormatter(Formatter):
 
         old = [a for t in undo for a in t.formatting]
         new = [a for t in do for a in t.formatting]
-        print "old:", old
-        print "new:", new
 
         min_length = min(len(old), len(new))
         for i in xrange(min_length):
