@@ -30,15 +30,10 @@ import plover.steno as steno
 import plover.translation as translation
 import plover.formatting as formatting
 import aware_formatter
-
+from dictmode import DictMode
 
 EVENT_HANDLED = True
 EVENT_NOT_HANDLED = False
-
-
-def _translation_is_spelling(t):
-    """Return True if the translation represents a letter-spelling"""
-    return t.english is not None and re.match(r'{&[a-z]}', t.english)
 
 
 class PloverEngine(IBus.Engine):
@@ -90,7 +85,6 @@ class PloverEngine(IBus.Engine):
         # Wire up the pipeline
         self.machine.add_stroke_callback(self._stroke_handler)
         self.translator.add_listener(self.formatter.format)
-        self.translator.add_listener(self._spelling_help_handler)
         self.formatter.set_output(self)
         self.machine.start_capture()
 
@@ -104,71 +98,39 @@ class PloverEngine(IBus.Engine):
         # self.logger = Logger()
         # self.translator.add_listener(self.logger.log_translation)
 
-        # Keep track of letter-spelled words
-        self._spelling_buffer = []
+        # Dictionary query/update mode
+        dictmode_stroke = steno.Stroke(['H-', 'A-', '-U', '-F'])
+        self.dictmode = DictMode(self, self.translator.get_dictionary(),
+                                 dict(stroke=dictmode_stroke))
+
+        # Stroke handlers
+        class TranslatorProxy:
+            def __init__(self, translator):
+                self.translator = translator
+            def handle_stroke(self, stroke):
+                try:
+                    self.translator.translate(stroke)
+                    return True  # handled
+                except aware_formatter.StateMismatch:
+                    # The surrounding text didn't match expectations - just
+                    # give up and reset the translator state. Then resend last
+                    # stroke.
+                    self.show_message("Resetting state")
+                    self.translator.clear_state()
+                    self.translator.translate(stroke)
+                return False
+
+        self._stroke_handlers = [
+            self.dictmode,
+            TranslatorProxy(self.translator)
+        ]
 
     def _stroke_handler(self, steno_keys):
         """Forward strokes from machine to translator"""
         stroke = steno.Stroke(steno_keys)
-        try:
-            self.translator.translate(stroke)
-        except aware_formatter.StateMismatch:
-            # The surrounding text didn't match expectations - just
-            # give up and reset the translator state. Then resend last
-            # stroke.
-            self.show_message("Resetting state")
-            self._reset_translator()
-            self.translator.translate(stroke)
-
-    def _spelling_help_handler(self, undo, do, prev):
-        """Look for spelled words and show help if they are in the dictionary"""
-
-        # Undo any spelling strokes already in the buffer
-        for t in reversed(undo):
-            if self._spelling_buffer and self._spelling_buffer[-1] == t:
-                self._spelling_buffer.pop()
-
-        # Store any spelling strokes up until the first non-spelling
-        non_spelling_stroke = False
-        for t in do:
-            if _translation_is_spelling(t):
-                self._spelling_buffer.append(t)
-            else:
-                non_spelling_stroke = True
-                break
-
-        # Show suggestions if spelling is completed
-        if non_spelling_stroke and self._spelling_buffer:
-            word = ''.join([t.english[2:3] for t in self._spelling_buffer])
-            self._spelling_buffer = []
-            self._show_strokes_for_word(word)
-        elif self.__lookup_table.get_number_of_candidates() > 0:
-            # If suggestions are still visible, clear them
-            self.__aux_string = ""
-            self.__lookup_table.clear()
-            self.__invalidate()
-
-    def _show_strokes_for_word(self, word):
-        """Show suggested strokes for `word`"""
-        entries = self.translator.get_dictionary().reverse_lookup(word)
-        if entries:
-            strokes = ['/'.join(x) for x in entries]
-            self.__aux_string = "Strokes for '%s':" % word
-            self.__lookup_table.clear()
-            self.__lookup_table.set_orientation(IBus.Orientation.VERTICAL)
-            self.__lookup_table.set_page_size(min(10, len(strokes)))
-            for stroke in strokes:
-                self.__lookup_table.append_candidate(
-                    IBus.Text.new_from_string(stroke))
-        else:
-            self.__aux_string = "'%s' not in dictionary" % word
-        self.__invalidate()
-
-    def _reset_translator(self):
-        """Reset translator state"""
-        # XXX is this necessary - or can just let formatter refuse?
-        self._spelling_buffer = []
-        self.translator.clear_state()
+        for handler in self._stroke_handlers:
+            if handler.handle_stroke(stroke):
+                return
 
     def do_process_key_event(self, keyval, keycode, state):
         """Handle key events from IBus"""
@@ -297,6 +259,28 @@ class PloverEngine(IBus.Engine):
         """Return True if surrounding text is available."""
         return (self.__input_capabilities &
                 IBus.Capabilite.SURROUNDING_TEXT) != 0
+
+    def get_current_word(self):
+        if not self.have_surrounding_text():
+            text, cursor_pos, anchor_pos = '', 0, 0
+        else:
+            text, cursor_pos, anchor_pos = self.get_surrounding_text()
+            text = text.get_text()
+        if not text:
+            return '<<NO WORD>>'
+        return text[:cursor_pos].split()[-1]
+
+    def show_message_list(self, message=None, values=None):
+        if message is not None:
+            self.__aux_string = message
+        if values is not None:
+            self.__lookup_table.clear()
+            self.__lookup_table.set_page_size(max(1, min(10, len(values))))
+            for v in values:
+                self.__lookup_table.append_candidate(
+                    IBus.Text.new_from_string(v))
+        if message is not None or values is not None:
+            self.__invalidate()
 
     # Plover output callbacks
     def change_string(self, before, after):
